@@ -186,11 +186,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to manager: %v ", err)
 	}
+	modules, err := host.CollectModulesInfo()
 	log.Logf(1, "connecting to manager...")
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
 	a := &rpctype.ConnectArgs{
 		Name:        *flagName,
 		MachineInfo: machineInfo,
+		Modules:     modules,
 	}
+
 	r := &rpctype.ConnectRes{}
 	if err := manager.Call("Manager.Connect", a, r); err != nil {
 		log.Fatalf("failed to connect to manager: %v ", err)
@@ -198,6 +204,11 @@ func main() {
 	featureFlags, err := csource.ParseFeaturesFlags("none", "none", true)
 	if err != nil {
 		log.Fatal(err)
+	}
+	if r.CoverFilterBitmap != nil {
+		if err := osutil.WriteFile("/syz-cover-bitmap", r.CoverFilterBitmap); err != nil {
+			log.Fatal(err)
+		}
 	}
 	if r.CheckResult == nil {
 		checkArgs.gitRevision = r.GitRevision
@@ -266,7 +277,7 @@ func main() {
 	}
 	fuzzer.choiceTable = target.BuildChoiceTable(fuzzer.corpus, calls)
 
-	if r.EnabledCoverFilter {
+	if r.CoverFilterBitmap != nil {
 		fuzzer.execOpts.Flags |= ipc.FlagEnableCoverageFilter
 	}
 

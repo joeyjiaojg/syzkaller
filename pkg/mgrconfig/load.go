@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/google/syzkaller/pkg/config"
+	"github.com/google/syzkaller/pkg/cover/backend"
 	"github.com/google/syzkaller/pkg/osutil"
 	"github.com/google/syzkaller/prog"
 	_ "github.com/google/syzkaller/sys" // most mgrconfig users want targets too
@@ -145,6 +146,9 @@ func Complete(cfg *Config) error {
 		return err
 	}
 	cfg.CompleteKernelDirs()
+	cfg.KernelModules = append(cfg.KernelModules, backend.KernelModule{
+		Name: "",
+	})
 
 	if cfg.HubClient != "" {
 		if err := checkNonEmpty(

@@ -53,7 +53,7 @@ type BugFrames struct {
 
 // RPCManagerView restricts interface between RPCServer and Manager.
 type RPCManagerView interface {
-	fuzzerConnect() ([]rpctype.RPCInput, BugFrames, bool)
+	fuzzerConnect(a *rpctype.ConnectArgs, r *rpctype.ConnectRes) ([]rpctype.RPCInput, BugFrames, map[uint32]uint32, error)
 	machineChecked(result *rpctype.CheckArgs, enabledSyscalls map[*prog.Syscall]bool)
 	newInput(inp rpctype.RPCInput, sign signal.Signal) bool
 	candidateBatch(size int) []rpctype.RPCCandidate
@@ -62,12 +62,11 @@ type RPCManagerView interface {
 
 func startRPCServer(mgr *Manager) (*RPCServer, error) {
 	serv := &RPCServer{
-		mgr:         mgr,
-		cfg:         mgr.cfg,
-		coverFilter: mgr.coverFilter,
-		stats:       mgr.stats,
-		fuzzers:     make(map[string]*Fuzzer),
-		rnd:         rand.New(rand.NewSource(time.Now().UnixNano())),
+		mgr:     mgr,
+		cfg:     mgr.cfg,
+		stats:   mgr.stats,
+		fuzzers: make(map[string]*Fuzzer),
+		rnd:     rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 	serv.batchSize = 5
 	if serv.batchSize < mgr.cfg.Procs {
@@ -87,7 +86,11 @@ func (serv *RPCServer) Connect(a *rpctype.ConnectArgs, r *rpctype.ConnectRes) er
 	log.Logf(1, "fuzzer %v connected", a.Name)
 	serv.stats.vmRestarts.inc()
 
-	corpus, bugFrames, enabledCoverFilter := serv.mgr.fuzzerConnect()
+	corpus, bugFrames, coverFilter, err := serv.mgr.fuzzerConnect(a, r)
+	if err != nil {
+		return err
+	}
+	serv.coverFilter = coverFilter
 
 	serv.mu.Lock()
 	defer serv.mu.Unlock()
@@ -102,7 +105,6 @@ func (serv *RPCServer) Connect(a *rpctype.ConnectArgs, r *rpctype.ConnectRes) er
 	r.EnabledCalls = serv.cfg.Syscalls
 	r.GitRevision = prog.GitRevision
 	r.TargetRevision = serv.cfg.Target.Revision
-	r.EnabledCoverFilter = enabledCoverFilter
 	if serv.mgr.rotateCorpus() && serv.rnd.Intn(5) == 0 {
 		// We do rotation every other time because there are no objective
 		// proofs regarding its efficiency either way.

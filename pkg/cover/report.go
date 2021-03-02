@@ -5,6 +5,7 @@ package cover
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 
 	"github.com/google/syzkaller/pkg/cover/backend"
@@ -17,6 +18,7 @@ type ReportGenerator struct {
 	objDir    string
 	buildDir  string
 	subsystem []Subsystem
+	modules   []backend.KernelModule
 	*backend.Impl
 }
 
@@ -28,8 +30,32 @@ type Prog struct {
 var RestorePC = backend.RestorePC
 
 func MakeReportGenerator(target *targets.Target, vm, objDir, srcDir, buildDir string,
-	subsystem []Subsystem) (*ReportGenerator, error) {
-	impl, err := backend.Make(target, vm, objDir, srcDir, buildDir)
+	subsystem []Subsystem, modules []backend.KernelModule) (*ReportGenerator, error) {
+	kernelObject := filepath.Join(objDir, target.KernelObject)
+	hasKey := false
+	for _, module := range modules {
+		if module.Name == "" {
+			hasKey = true
+			break
+		}
+	}
+	if !hasKey {
+		modules = append(modules, backend.KernelModule{
+			Name: "",
+			Addr: 0,
+		})
+	}
+	for i, module := range modules {
+		if module.Name == "" {
+			modules[i].Path = kernelObject
+			break
+		}
+	}
+	sort.Slice(modules, func(i, j int) bool {
+		return modules[i].Addr > modules[j].Addr
+	})
+
+	impl, err := backend.Make(target, vm, objDir, srcDir, buildDir, modules)
 	if err != nil {
 		return nil, err
 	}
@@ -43,6 +69,7 @@ func MakeReportGenerator(target *targets.Target, vm, objDir, srcDir, buildDir st
 		objDir:    objDir,
 		buildDir:  buildDir,
 		subsystem: subsystem,
+		modules:   modules,
 		Impl:      impl,
 	}
 	return rg, nil
@@ -94,7 +121,20 @@ func (rg *ReportGenerator) prepareFileMap(progs []Prog) (map[string]*file, error
 	for _, frame := range rg.Frames {
 		f := getFile(files, frame.Name, frame.Path)
 		ln := f.lines[frame.StartLine]
-		coveredBy := progPCs[frame.PC]
+		var pc uint64
+		if frame.Module == "" {
+			pc = frame.PC
+		} else {
+			idx := 0
+			for i, module := range rg.modules {
+				if module.Name == frame.Module {
+					idx = i
+					break
+				}
+			}
+			pc = frame.PC + rg.modules[idx].Addr
+		}
+		coveredBy := progPCs[pc]
 		if len(coveredBy) == 0 {
 			f.uncovered = append(f.uncovered, frame.Range)
 			continue
@@ -146,6 +186,34 @@ func (rg *ReportGenerator) prepareFileMap(progs []Prog) (map[string]*file, error
 	return files, nil
 }
 
+func (rg *ReportGenerator) groupPCsByModule(pcs []uint64) map[string][]uint64 {
+	groupPCs := make(map[string][]uint64)
+	for _, module := range rg.modules {
+		groupPCs[module.Name] = make([]uint64, 0)
+	}
+	for _, pc := range pcs {
+		if pc > rg.modules[0].Addr {
+			if rg.modules[0].Name == "" {
+				groupPCs[rg.modules[0].Name] = append(groupPCs[rg.modules[0].Name], pc)
+			} else {
+				groupPCs[rg.modules[0].Name] = append(groupPCs[rg.modules[0].Name], pc-rg.modules[0].Addr)
+			}
+		} else {
+			for i := 0; i < len(rg.modules)-1; i++ {
+				if pc < rg.modules[i].Addr && pc >= rg.modules[i+1].Addr {
+					if rg.modules[i+1].Name == "" {
+						groupPCs[rg.modules[i+1].Name] = append(groupPCs[rg.modules[i+1].Name], pc)
+					} else {
+						groupPCs[rg.modules[i+1].Name] = append(groupPCs[rg.modules[i+1].Name], pc-rg.modules[i+1].Addr)
+					}
+					break
+				}
+			}
+		}
+	}
+	return groupPCs
+}
+
 func (rg *ReportGenerator) lazySymbolize(progs []Prog) error {
 	if len(rg.Symbols) == 0 {
 		return nil
@@ -175,11 +243,27 @@ func (rg *ReportGenerator) lazySymbolize(progs []Prog) error {
 	if len(pcs) == 0 {
 		return nil
 	}
-	frames, err := rg.Symbolize(pcs)
-	if err != nil {
-		return err
+	groupPCs := rg.groupPCsByModule(pcs)
+	for name, pcs := range groupPCs {
+		if len(pcs) == 0 {
+			continue
+		}
+		var module backend.KernelModule
+		for _, m := range rg.modules {
+			if name == m.Name {
+				module = m
+				break
+			}
+		}
+		frames, err := rg.Symbolize(pcs, module.Path)
+		if err != nil {
+			return err
+		}
+		for i := range frames {
+			frames[i].Module = name
+		}
+		rg.Frames = append(rg.Frames, frames...)
 	}
-	rg.Frames = append(rg.Frames, frames...)
 	for sym := range symbolize {
 		sym.Symbolized = true
 	}

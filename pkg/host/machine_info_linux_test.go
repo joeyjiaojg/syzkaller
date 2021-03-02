@@ -143,6 +143,19 @@ D:	d
 	}
 }
 
+func TestGetModulesInfo(t *testing.T) {
+	modules, err := getModulesInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("modules:\n%v", modules)
+	if len(modules) > 0 {
+		if modules[0].Name != "" {
+			t.Fatalf("expected empty name for first element")
+		}
+	}
+}
+
 type cannedTest struct {
 	arch string
 	data string

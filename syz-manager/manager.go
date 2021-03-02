@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"debug/elf"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -14,12 +15,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/google/syzkaller/dashboard/dashapi"
 	"github.com/google/syzkaller/pkg/cover"
+	"github.com/google/syzkaller/pkg/cover/backend"
 	"github.com/google/syzkaller/pkg/csource"
 	"github.com/google/syzkaller/pkg/db"
 	"github.com/google/syzkaller/pkg/gce"
@@ -88,8 +91,8 @@ type Manager struct {
 	// Maps file name to modification time.
 	usedFiles map[string]time.Time
 
-	coverFilterFilename string
-	coverFilter         map[uint32]uint32
+	coverFilter map[uint32]uint32
+	ready       bool
 }
 
 const (
@@ -176,11 +179,6 @@ func RunManager(cfg *mgrconfig.Config) {
 	mgr.preloadCorpus()
 	mgr.initHTTP() // Creates HTTP server.
 	mgr.collectUsedFiles()
-
-	mgr.coverFilterFilename, mgr.coverFilter, err = createCoverageFilter(mgr.cfg)
-	if err != nil {
-		log.Fatalf("failed to create coverage filter: %v", err)
-	}
 
 	// Create RPC server for fuzzers.
 	mgr.serv, err = startRPCServer(mgr)
@@ -591,13 +589,6 @@ func (mgr *Manager) runInstanceInner(index int, instanceName string) (*report.Re
 	fwdAddr, err := inst.Forward(mgr.serv.port)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup port forwarding: %v", err)
-	}
-
-	if mgr.coverFilterFilename != "" {
-		_, err = inst.Copy(mgr.coverFilterFilename)
-		if err != nil {
-			return nil, fmt.Errorf("failed to copy coverage filter bitmap: %v", err)
-		}
 	}
 
 	fuzzerBin, err := inst.Copy(mgr.cfg.FuzzerBin)
@@ -1049,7 +1040,14 @@ func (mgr *Manager) collectSyscallInfoUnlocked() map[string]*CallCov {
 	return calls
 }
 
-func (mgr *Manager) fuzzerConnect() ([]rpctype.RPCInput, BugFrames, bool) {
+var (
+	once              sync.Once
+	coverFilterBitmap []byte
+	coverFilter       map[uint32]uint32
+)
+
+func (mgr *Manager) fuzzerConnect(a *rpctype.ConnectArgs, r *rpctype.ConnectRes) ([]rpctype.RPCInput, BugFrames,
+	map[uint32]uint32, error) {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
@@ -1066,7 +1064,170 @@ func (mgr *Manager) fuzzerConnect() ([]rpctype.RPCInput, BugFrames, bool) {
 	for frame := range mgr.dataRaceFrames {
 		dataRaceFrames = append(dataRaceFrames, frame)
 	}
-	return corpus, BugFrames{memoryLeaks: memoryLeakFrames, dataRaces: dataRaceFrames}, mgr.coverFilterFilename != ""
+	var err error
+	once.Do(func() {
+		err = mgr.updateKernelModules(a)
+		if err != nil {
+			return
+		}
+		mgr.ready = true
+		coverFilterBitmap, coverFilter, err = mgr.updateCoverFilter()
+	})
+	if err != nil {
+		return nil, BugFrames{}, nil, err
+	}
+	r.CoverFilterBitmap = coverFilterBitmap
+	return corpus, BugFrames{memoryLeaks: memoryLeakFrames, dataRaces: dataRaceFrames}, coverFilter, nil
+}
+
+const EXT string = ".ko"
+
+func searchModuleName(data []byte) (string, error) {
+	key := []byte("name=")
+	pos := bytes.Index(data, key)
+	if pos == -1 {
+		return "", fmt.Errorf("not find name= keyword")
+	}
+	end := bytes.Index(data[pos:], []byte{0x00})
+	if end == -1 {
+		return "", fmt.Errorf("not find null char")
+	}
+	return string(data[pos+len(key) : pos+end]), nil
+}
+
+func getModuleName(path string) (string, error) {
+	file, err := elf.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to open %v", path)
+	}
+	section := file.Section(".modinfo")
+	if section == nil {
+		return "", fmt.Errorf("no .modinfo section")
+	}
+	data, err := section.Data()
+	if err != nil {
+		return "", fmt.Errorf("failed to read .modinfo")
+	}
+	name, err := searchModuleName(data)
+	if err != nil {
+		section = file.Section(".gnu.linkonce.this_module")
+		if section == nil {
+			return "", fmt.Errorf("no .gnu.linkonce.this_module section")
+		}
+		data, err = section.Data()
+		if err != nil {
+			fmt.Println("failed to read .gnu.linkonce.this_module")
+		}
+		name = string(data)
+	}
+	return name, nil
+}
+
+func findModulePaths(dir string) ([]string, error) {
+	files := []string{}
+	err := filepath.Walk(dir, func(path string, f os.FileInfo, err error) error {
+		if filepath.Ext(path) == EXT {
+			files = append(files, path)
+		}
+		return nil
+	})
+
+	return files, err
+}
+
+func autoFindModulePath(where, name string) (string, error) {
+	paths, err := findModulePaths(where)
+	if err != nil {
+		return "", err
+	}
+	for _, path := range paths {
+		if strings.TrimSuffix(filepath.Base(path), EXT) == name {
+			return path, nil
+		}
+	}
+	for _, slowpath := range paths {
+		mname, err := getModuleName(slowpath)
+		if err != nil {
+			return "", err
+		}
+		if mname == name {
+			return slowpath, nil
+		}
+	}
+	return "", fmt.Errorf("no match module path found")
+}
+
+func (mgr *Manager) getModulePath(name string) (string, error) {
+	modulePath := ""
+	var err error
+	if mgr.cfg.KernelObj != "" {
+		modulePath, err = autoFindModulePath(mgr.cfg.KernelObj, name)
+	}
+	for _, path := range mgr.cfg.ModuleObj {
+		modulePath, err = autoFindModulePath(path, name)
+		if err == nil {
+			return modulePath, nil
+		}
+	}
+	if err != nil {
+		return "", err
+	}
+	return modulePath, err
+}
+
+func (mgr *Manager) updateKernelModules(a *rpctype.ConnectArgs) error {
+	for _, rmodule := range a.Modules {
+		hasKey := false
+		i := 0
+		for idx, module := range mgr.cfg.KernelModules {
+			if module.Name == rmodule.Name {
+				hasKey = true
+				i = idx
+				break
+			}
+		}
+		if hasKey {
+			if mgr.cfg.KernelModules[i].Path == "" && rmodule.Name != "" {
+				path, err := mgr.getModulePath(rmodule.Name)
+				if err != nil && !mgr.cfg.KernelModules[i].Disabled {
+					log.Logf(0, "module path needs to be specified in config for %v", rmodule.Name)
+					return fmt.Errorf("module path needs to be specified in config for %v", rmodule.Name)
+				}
+				mgr.cfg.KernelModules[i].Path = path
+			}
+			mgr.cfg.KernelModules[i].Addr = rmodule.Addr
+		} else {
+			if rmodule.Name == "" {
+				mgr.cfg.KernelModules = append(mgr.cfg.KernelModules, backend.KernelModule{
+					Name: "",
+					Addr: rmodule.Addr,
+				})
+				continue
+			}
+			path, err := mgr.getModulePath(rmodule.Name)
+			if err != nil {
+				log.Logf(0, "failed to auto find module: %v", rmodule.Name)
+			}
+			mgr.cfg.KernelModules = append(mgr.cfg.KernelModules, backend.KernelModule{
+				Name: rmodule.Name,
+				Addr: rmodule.Addr,
+				Path: path,
+			})
+		}
+	}
+	log.Logf(0, "kernel modules: %v", mgr.cfg.KernelModules)
+	return nil
+}
+
+func (mgr *Manager) updateCoverFilter() ([]byte, map[uint32]uint32, error) {
+	bitmap, coverFilter, err := createCoverageFilter(mgr.cfg)
+	if err != nil {
+		log.Logf(0, "failed to create coverage filter: %v", err)
+		return nil, nil, fmt.Errorf("failed to create coverage filter")
+	}
+	mgr.coverFilter = coverFilter
+
+	return bitmap, coverFilter, nil
 }
 
 func (mgr *Manager) machineChecked(a *rpctype.CheckArgs, enabledSyscalls map[*prog.Syscall]bool) {

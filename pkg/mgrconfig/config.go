@@ -5,7 +5,9 @@ package mgrconfig
 
 import (
 	"encoding/json"
+
 	"github.com/google/syzkaller/pkg/cover"
+	"github.com/google/syzkaller/pkg/cover/backend"
 )
 
 type Config struct {
@@ -38,8 +40,31 @@ type Config struct {
 	//	"qemu_args": "-fda {{TEMPLATE}}/fd"
 	WorkdirTemplate string `json:"workdir_template"`
 	// Directory with kernel object files (e.g. `vmlinux` for linux)
-	// (used for report symbolization and coverage reports, optional).
+	// (used for report symbolization, coverage reports and in tree modules finding, optional).
 	KernelObj string `json:"kernel_obj"`
+	// Directories for unstripped kernel module object files (optional)
+	// It's needed for out-of-tree module build in order to find ko files automatically
+	// If not all out-of-tree modules in this directory, use KernelModules for these
+	// exception cases
+	ModuleObj []string `json:"module_obj"`
+	// Map of kernel module object files and load address (optional).
+	// path is unstripped module obj path and
+	// addr (uint64) is the module load address on target,
+	//   ex 'wlan 16384 0 - Live 0xffffffffc0163000',
+	//   addr is 18446744072637263872 of 0xffffffffc0163000 above.
+	// disabled set to true to disable coverage for the module.
+	// For linux target, the addr is getting from /proc/modules
+	//   automatically during syz-fuzzer setup.
+	// Example config:
+	// "kernel_modules": [
+	//	{
+	//		"name": "wlan",
+	//		"path": "/var/lib/modules/unstripped/wlan.ko",
+	//		"addr": 18446744072637911040,
+	//		"disabled": true
+	//	}
+	// ]
+	KernelModules []backend.KernelModule `json:"kernel_modules"`
 	// Kernel source directory (if not set defaults to KernelObj).
 	KernelSrc string `json:"kernel_src,omitempty"`
 	// Location of the driectory where the kernel was built (if not set defaults to KernelSrc)

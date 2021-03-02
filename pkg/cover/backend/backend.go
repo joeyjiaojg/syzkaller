@@ -9,11 +9,18 @@ import (
 	"github.com/google/syzkaller/sys/targets"
 )
 
+type KernelModule struct {
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	Addr     uint64 `json:"addr"`
+	Disabled bool   `json:"disabled"`
+}
+
 type Impl struct {
 	Units     []*CompileUnit
 	Symbols   []*Symbol
 	Frames    []Frame
-	Symbolize func(pcs []uint64) ([]Frame, error)
+	Symbolize func(pcs []uint64, obj string) ([]Frame, error)
 	RestorePC func(pc uint32) uint64
 }
 
@@ -38,9 +45,10 @@ type ObjectUnit struct {
 }
 
 type Frame struct {
-	PC   uint64
-	Name string
-	Path string
+	Module string
+	PC     uint64
+	Name   string
+	Path   string
 	Range
 }
 
@@ -53,12 +61,12 @@ type Range struct {
 
 const LineEnd = 1 << 30
 
-func Make(target *targets.Target, vm, objDir, srcDir, buildDir string) (*Impl, error) {
+func Make(target *targets.Target, vm, objDir, srcDir, buildDir string, modules []KernelModule) (*Impl, error) {
 	if objDir == "" {
 		return nil, fmt.Errorf("kernel obj directory is not specified")
 	}
 	if vm == "gvisor" {
 		return makeGvisor(target, objDir, srcDir, buildDir)
 	}
-	return makeELF(target, objDir, srcDir, buildDir)
+	return makeELF(target, objDir, srcDir, buildDir, modules)
 }

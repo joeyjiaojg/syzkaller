@@ -236,6 +236,10 @@ func (mgr *Manager) httpCoverCover(w http.ResponseWriter, r *http.Request, funcF
 		}
 		return
 	}
+	if !mgr.ready {
+		http.Error(w, "coverage is not ready, please try again later after fuzzer started", http.StatusInternalServerError)
+		return
+	}
 
 	rg, err := getReportGenerator(mgr.cfg)
 	if err != nil {
