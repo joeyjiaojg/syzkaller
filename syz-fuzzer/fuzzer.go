@@ -206,7 +206,13 @@ func main() {
 		log.Fatal(err)
 	}
 	if r.CoverFilterBitmap != nil {
-		if err := osutil.WriteFile("/syz-cover-bitmap", r.CoverFilterBitmap); err != nil {
+		var filename string
+		filename = "/syz-cover-bitmap"
+		tmpdir := os.Getenv("TMPDIR")
+		if tmpdir != "" {
+			filename = tmpdir + filename
+		}
+		if err := osutil.WriteFile(filename, r.CoverFilterBitmap); err != nil {
 			log.Fatal(err)
 		}
 	}

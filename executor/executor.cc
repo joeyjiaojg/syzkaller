@@ -444,7 +444,17 @@ int main(int argc, char** argv)
 			// Don't enable comps because we don't use them in the fuzzer yet.
 			cover_enable(&extra_cov, false, true);
 		}
-		init_coverage_filter();
+		char filename[1024];
+		char const *name = "/syz-cover-bitmap";
+		char *tmpdir = getenv("TMPDIR");
+		if (tmpdir) {
+			strcpy(filename, tmpdir);
+			strncat(filename, name, strlen(name)+1);
+		}
+		else
+			strcpy(filename, name);
+
+		init_coverage_filter(filename);
 	}
 
 	int status = 0;
