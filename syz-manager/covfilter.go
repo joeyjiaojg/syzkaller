@@ -21,10 +21,13 @@ func (mgr *Manager) createCoverageFilter() ([]byte, map[uint32]uint32, error) {
 	if len(mgr.cfg.CovFilter.Functions)+len(mgr.cfg.CovFilter.Files)+len(mgr.cfg.CovFilter.RawPCs) == 0 {
 		return nil, nil, nil
 	}
-	// Always initialize ReportGenerator because RPCServer.NewInput will need it to filter coverage.
+-       // Always initialize ReportGenerator because RPCServer.NewInput will need it to filter coverage.
 	rg, err := getReportGenerator(mgr.cfg, mgr.modules)
 	if err != nil {
 		return nil, nil, err
+	}
+	if len(mgr.cfg.CovFilter.Functions)+len(mgr.cfg.CovFilter.Files)+len(mgr.cfg.CovFilter.RawPCs) == 0 {
+		return nil, nil, nil
 	}
 	pcs := make(map[uint32]uint32)
 	foreachSymbol := func(apply func(*backend.ObjectUnit)) {

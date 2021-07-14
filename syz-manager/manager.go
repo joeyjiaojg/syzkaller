@@ -88,7 +88,7 @@ type Manager struct {
 	// Maps file name to modification time.
 	usedFiles map[string]time.Time
 
-	modules            []host.KernelModule
+	modules            []*host.KernelModule
 	coverFilter        map[uint32]uint32
 	coverFilterBitmap  []byte
 	modulesInitialized bool
@@ -1053,7 +1053,7 @@ func (mgr *Manager) collectSyscallInfoUnlocked() map[string]*CallCov {
 	return calls
 }
 
-func (mgr *Manager) fuzzerConnect(modules []host.KernelModule) (
+func (mgr *Manager) fuzzerConnect(modules []*host.KernelModule) (
 	[]rpctype.Input, BugFrames, map[uint32]uint32, []byte, error) {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()

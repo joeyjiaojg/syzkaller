@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"sort"
 	"sync"
 	"time"
 
@@ -22,7 +23,7 @@ import (
 type RPCServer struct {
 	mgr                   RPCManagerView
 	cfg                   *mgrconfig.Config
-	modules               []host.KernelModule
+	modules               []*host.KernelModule
 	port                  int
 	targetEnabledSyscalls map[*prog.Syscall]bool
 	coverFilter           map[uint32]uint32
@@ -47,6 +48,7 @@ type Fuzzer struct {
 	newMaxSignal  signal.Signal
 	rotatedSignal signal.Signal
 	machineInfo   []byte
+	modules       []*host.KernelModule
 }
 
 type BugFrames struct {
@@ -95,7 +97,6 @@ func (serv *RPCServer) Connect(a *rpctype.ConnectArgs, r *rpctype.ConnectRes) er
 		return err
 	}
 	serv.coverFilter = coverFilter
-	serv.modules = a.Modules
 
 	serv.mu.Lock()
 	defer serv.mu.Unlock()
@@ -284,13 +285,17 @@ func (serv *RPCServer) NewInput(a *rpctype.NewInputArgs, r *int) error {
 		if err != nil {
 			return err
 		}
-		filtered := 0
+		var pcs []uint64
 		for _, pc := range diff {
-			if serv.coverFilter[uint32(rg.RestorePC(pc))] != 0 {
-				filtered++
-			}
+			pcs = append(pcs, rg.RestorePC(pc))
 		}
-		serv.stats.corpusCoverFiltered.add(filtered)
+		progs := []cover.Prog{
+			{
+				PCs: pcs,
+			},
+		}
+		progs = rg.FixupPCs(serv.cfg.SysTarget, progs, serv.coverFilter)
+		serv.stats.corpusCoverFiltered.add(len(progs[0].PCs))
 	}
 	serv.stats.newInputs.inc()
 	if rotated {
