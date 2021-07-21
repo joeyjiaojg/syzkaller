@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"sort"
 	"sync"
 	"time"
 
@@ -34,7 +35,7 @@ type RPCServer struct {
 	checkResult   *rpctype.CheckArgs
 	maxSignal     signal.Signal
 	corpusSignal  signal.Signal
-	corpusCover   cover.Cover
+	corpusCover   cover.Offsets
 	rotator       *prog.Rotator
 	rnd           *rand.Rand
 	checkFailures int
@@ -47,6 +48,7 @@ type Fuzzer struct {
 	newMaxSignal  signal.Signal
 	rotatedSignal signal.Signal
 	machineInfo   []byte
+	modules       []host.KernelModule
 }
 
 type BugFrames struct {
@@ -62,6 +64,7 @@ type RPCManagerView interface {
 	newInput(inp rpctype.RPCInput, sign signal.Signal) bool
 	candidateBatch(size int) []rpctype.RPCCandidate
 	rotateCorpus() bool
+	isModuleInitialized() bool
 }
 
 func startRPCServer(mgr *Manager) (*RPCServer, error) {
@@ -90,12 +93,15 @@ func (serv *RPCServer) Connect(a *rpctype.ConnectArgs, r *rpctype.ConnectRes) er
 	log.Logf(1, "fuzzer %v connected", a.Name)
 	serv.stats.vmRestarts.inc()
 
+	if !serv.mgr.isModuleInitialized() {
+		serv.modules = a.Modules
+	}
+
 	corpus, bugFrames, coverFilter, coverBitmap, err := serv.mgr.fuzzerConnect(a.Modules)
 	if err != nil {
 		return err
 	}
 	serv.coverFilter = coverFilter
-	serv.modules = a.Modules
 
 	serv.mu.Lock()
 	defer serv.mu.Unlock()
@@ -103,6 +109,7 @@ func (serv *RPCServer) Connect(a *rpctype.ConnectArgs, r *rpctype.ConnectRes) er
 	f := &Fuzzer{
 		name:        a.Name,
 		machineInfo: a.MachineInfo,
+		modules:     a.Modules,
 	}
 	serv.fuzzers[a.Name] = f
 	r.MemoryLeakFrames = bugFrames.memoryLeaks
@@ -269,6 +276,18 @@ func (serv *RPCServer) NewInput(a *rpctype.NewInputArgs, r *int) error {
 	if !genuine && !rotated {
 		return nil
 	}
+	// Note: ReportGenerator is already initialized if coverFilter is enabled.
+	rg, err := getReportGenerator(serv.cfg, serv.modules)
+	if err != nil {
+		return err
+	}
+	for _, module := range f.modules {
+		if module.Name == "" {
+			module.Addr = rg.BaseAddr
+			break
+		}
+	}
+	a.RPCInput.Offsets = parseRPCInput(rg, f.modules, a.RPCInput)
 	if !serv.mgr.newInput(a.RPCInput, inputSignal) {
 		return nil
 	}
@@ -276,18 +295,14 @@ func (serv *RPCServer) NewInput(a *rpctype.NewInputArgs, r *int) error {
 	if f != nil && f.rotated {
 		f.rotatedSignal.Merge(inputSignal)
 	}
-	diff := serv.corpusCover.MergeDiff(a.Cover)
-	serv.stats.corpusCover.set(len(serv.corpusCover))
-	if len(diff) != 0 && serv.coverFilter != nil {
-		// Note: ReportGenerator is already initialized if coverFilter is enabled.
-		rg, err := getReportGenerator(serv.cfg, serv.modules)
-		if err != nil {
-			return err
-		}
-		var pcs []uint64
-		for _, pc := range diff {
-			pcs = append(pcs, rg.RestorePC(pc))
-		}
+	diff := serv.corpusCover.MergeDiff(a.RPCInput.Offsets)
+	count := 0
+	for _, offsets := range serv.corpusCover {
+		count += len(offsets)
+	}
+	serv.stats.corpusCover.set(count)
+	if serv.coverFilter != nil {
+		pcs := offsetsToPCs(serv.cfg.SysTarget, serv.modules, rg, diff)
 		progs := []cover.Prog{
 			{
 				PCs: pcs,
@@ -314,6 +329,42 @@ func (serv *RPCServer) NewInput(a *rpctype.NewInputArgs, r *int) error {
 		}
 	}
 	return nil
+}
+
+func parseRPCInput(rg *cover.ReportGenerator, modules []host.KernelModule, inp rpctype.RPCInput) map[string][]uint32 {
+	offsets := make(map[string][]uint32)
+	for _, pc := range inp.Cover {
+		pc1 := rg.RestorePC(pc)
+		name, offset := findModuleOffset(pc1, modules)
+		offsets[name] = append(offsets[name], offset)
+	}
+	return offsets
+}
+
+func findModuleOffset(pc uint64, modules []host.KernelModule) (string, uint32) {
+	if len(modules) < 2 {
+		return "", uint32(pc)
+	}
+	idx := sort.Search(len(modules), func(i int) bool {
+		return pc < modules[i].Addr
+	})
+	if idx == 0 && pc < modules[0].Addr {
+		log.Logf(0, "idx == 0 && pc < modules[0].Addr %v %v", pc, modules[0].Addr)
+		return "", uint32(pc)
+	}
+	idx--
+	if modules[0].Addr < modules[1].Addr {
+		_text := modules[len(modules)-1].Addr
+		if pc > _text {
+			return "", uint32(pc)
+		}
+	} else {
+		if pc < modules[1].Addr {
+			return "", uint32(pc)
+		}
+	}
+
+	return modules[idx].Name, uint32(pc - modules[idx].Addr)
 }
 
 func (serv *RPCServer) Poll(a *rpctype.PollArgs, r *rpctype.PollRes) error {

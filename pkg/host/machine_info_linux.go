@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -139,6 +140,9 @@ func getModulesInfo() ([]KernelModule, error) {
 			Addr: addr,
 		})
 	}
+	sort.Slice(modules, func(i, j int) bool {
+		return modules[i].Addr < modules[j].Addr
+	})
 	return modules, nil
 }
 
