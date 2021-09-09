@@ -139,7 +139,6 @@ func elfReadModuleCoverPoints(target *targets.Target, module *Module, info *symb
 	if err != nil {
 		return pcs, err
 	}
-	callRelocType := arches[target.Arch].callRelocType
 	relaOffset := arches[target.Arch].relaOffset
 	s := file.Section(".rela.text")
 	if s == nil {
@@ -153,9 +152,6 @@ func elfReadModuleCoverPoints(target *targets.Target, module *Module, info *symb
 				break
 			}
 			return pcs, err
-		}
-		if (rel.Info & 0xffffffff) != callRelocType {
-			continue
 		}
 		pc := module.Addr + rel.Off - relaOffset
 		index := int(elf.R_SYM64(rel.Info)) - 1

@@ -7,7 +7,6 @@ import (
 	"bufio"
 	"bytes"
 	"debug/dwarf"
-	"debug/elf"
 	"encoding/binary"
 	"fmt"
 	"io/ioutil"
@@ -31,30 +30,27 @@ type containerFns struct {
 }
 
 type Arch struct {
-	callLen       int
-	relaOffset    uint64
-	opcodeOffset  int
-	opcodes       [2]byte
-	callRelocType uint64
-	target        func(arch *Arch, insn []byte, pc uint64, opcode byte) uint64
+	callLen      int
+	relaOffset   uint64
+	opcodeOffset int
+	opcodes      [2]byte
+	target       func(arch *Arch, insn []byte, pc uint64, opcode byte) uint64
 }
 
 var arches = map[string]Arch{
 	targets.AMD64: {
-		callLen:       5,
-		relaOffset:    1,
-		opcodes:       [2]byte{0xe8, 0xe8},
-		callRelocType: uint64(elf.R_X86_64_PLT32),
+		callLen:    5,
+		relaOffset: 1,
+		opcodes:    [2]byte{0xe8, 0xe8},
 		target: func(arch *Arch, insn []byte, pc uint64, opcode byte) uint64 {
 			off := uint64(int64(int32(binary.LittleEndian.Uint32(insn[1:]))))
 			return pc + off + uint64(arch.callLen)
 		},
 	},
 	targets.ARM64: {
-		callLen:       4,
-		opcodeOffset:  3,
-		opcodes:       [2]byte{0x94, 0x97},
-		callRelocType: uint64(elf.R_AARCH64_CALL26),
+		callLen:      4,
+		opcodeOffset: 3,
+		opcodes:      [2]byte{0x94, 0x97},
 		target: func(arch *Arch, insn []byte, pc uint64, opcode byte) uint64 {
 			off := uint64(binary.LittleEndian.Uint32(insn)) & ((1 << 24) - 1)
 			if opcode == arch.opcodes[1] {
