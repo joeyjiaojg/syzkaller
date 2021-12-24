@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
-	"sort"
 	"sync"
 	"time"
 
@@ -48,7 +47,6 @@ type Fuzzer struct {
 	newMaxSignal  signal.Signal
 	rotatedSignal signal.Signal
 	machineInfo   []byte
-	modules       []*host.KernelModule
 }
 
 type BugFrames struct {
@@ -58,7 +56,7 @@ type BugFrames struct {
 
 // RPCManagerView restricts interface between RPCServer and Manager.
 type RPCManagerView interface {
-	fuzzerConnect([]host.KernelModule) (
+	fuzzerConnect([]*host.KernelModule) (
 		[]rpctype.Input, BugFrames, map[uint32]uint32, []byte, error)
 	machineChecked(result *rpctype.CheckArgs, enabledSyscalls map[*prog.Syscall]bool)
 	newInput(inp rpctype.Input, sign signal.Signal) bool

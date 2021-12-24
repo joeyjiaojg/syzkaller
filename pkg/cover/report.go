@@ -137,7 +137,7 @@ func (rg *ReportGenerator) prepareFileMap(progs []Prog) (map[string]*file, error
 		idx := sort.Search(len(rg.Frames), func(i int) bool {
 			return pc < rg.Frames[i].PC
 		})
-		if idx == len(rg.Frames) {
+		if idx == 0 {
 			continue
 		}
 		frame := rg.Frames[idx-1]

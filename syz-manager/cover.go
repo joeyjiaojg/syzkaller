@@ -7,11 +7,9 @@ import (
 	"sync"
 
 	"github.com/google/syzkaller/pkg/cover"
-	"github.com/google/syzkaller/pkg/cover/backend"
 	"github.com/google/syzkaller/pkg/host"
 	"github.com/google/syzkaller/pkg/log"
 	"github.com/google/syzkaller/pkg/mgrconfig"
-	"github.com/google/syzkaller/sys/targets"
 )
 
 var getReportGenerator = func() func(cfg *mgrconfig.Config,
