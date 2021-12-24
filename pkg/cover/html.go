@@ -20,7 +20,6 @@ import (
 	"strings"
 
 	"github.com/google/syzkaller/pkg/cover/backend"
-	"github.com/google/syzkaller/pkg/log"
 	"github.com/google/syzkaller/pkg/mgrconfig"
 	"github.com/google/syzkaller/sys/targets"
 )
@@ -156,23 +155,19 @@ func (rg *ReportGenerator) DoRawCoverFiles(w http.ResponseWriter, progs []Prog, 
 	uniquePCs := make(map[uint64]bool)
 	for _, prog := range progs {
 		for _, pc := range prog.PCs {
-			if uniquePCs[pc] {
-				continue
+			if !uniquePCs[pc] {
+				uniquePCs[pc] = true
+				pcs = append(pcs, pc)
 			}
-			uniquePCs[pc] = true
-			pcs = append(pcs, pc)
 		}
 	}
 	sort.Slice(pcs, func(i, j int) bool {
 		return pcs[i] < pcs[j]
 	})
-	sort.Slice(rg.Frames, func(i, j int) bool {
-		return rg.Frames[i].PC < rg.Frames[j].PC
-	})
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	buf := bufio.NewWriter(w)
-	fmt.Fprintf(buf, "PC,framePC,Module,Offset,Filename,StartLine\n")
+	fmt.Fprintf(buf, "PC,Module,Offset,Filename,StartLine\n")
 	for _, pc := range pcs {
 		idx := sort.Search(len(rg.Frames), func(i int) bool {
 			return pc < rg.Frames[i].PC
@@ -181,9 +176,9 @@ func (rg *ReportGenerator) DoRawCoverFiles(w http.ResponseWriter, progs []Prog, 
 			continue
 		}
 		frame := rg.Frames[idx-1]
-		if pc != frame.PC {
-			log.Logf(0, "DoRawCoverFiles: pc (%v) != frame.PC (%v) \n", pc, frame.PC)
-		}
+		// check https://issuetracker.google.com/issues/202989055, it's possible pc != frame.PC,
+		// but we need to count the pc.
+		// So in /rawcoverfiles, possible this line 0xffffffc0115db624,,0xffffffc0115db61c,net/ipv6/ip6_fib.c,1731
 		offset := frame.PC - frame.Module.Addr
 		if pc != frame.PC {
 			// Not log line number 0
@@ -501,6 +496,9 @@ func groupCoverByModule(datas []fileStats) map[string]map[string]string {
 		funcs := fmt.Sprintf("%v / %v / %.2f%%", coveredFuncs[m], totalFuncs[m], percentCoveredFunc[m])
 		pcsInFuncs := fmt.Sprintf("%v / %v / %.2f%%", coveredPCsInFuncs[m], pcsInFuncs[m], percentPCsInFunc[m])
 		covedFuncs := fmt.Sprintf("%v / %v / %.2f%%", coveredPCsInFuncs[m], pcsInCoveredFuncs[m], percentPCsInCoveredFunc[m])
+		if m == "" {
+			m = "vmlinux"
+		}
 		d[m] = map[string]string{
 			"name":              m,
 			"lines":             lines,

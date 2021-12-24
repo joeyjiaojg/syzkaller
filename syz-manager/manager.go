@@ -1081,6 +1081,17 @@ func (mgr *Manager) fuzzerConnect(modules []*host.KernelModule) (
 			log.Fatalf("failed to create coverage filter: %v", err)
 		}
 		mgr.modulesInitialized = true
+	} else {
+		for _, m1 := range modules {
+			for _, m2 := range mgr.modules {
+				if m1.Name == m2.Name {
+					if m1.Addr != m2.Addr {
+						log.Logf(0, "module load address varies across reboot for module %v (%x : %x)", m1.Name, m1.Addr, m2.Addr)
+					}
+					break
+				}
+			}
+		}
 	}
 	return corpus, frames, mgr.coverFilter, mgr.coverFilterBitmap, nil
 }
