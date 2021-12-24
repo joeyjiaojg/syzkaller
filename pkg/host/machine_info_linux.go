@@ -143,6 +143,9 @@ func getModulesInfo() ([]*KernelModule, int, error) {
 	sort.Slice(modules, func(i, j int) bool {
 		return modules[i].Addr < modules[j].Addr
 	})
+	if len(modules) == 0 {
+		return nil, 0, nil
+	}
 	moduleLoadOffset, err := getModuleLoadOffset(modules[0])
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to get module load offset: %v", err)
