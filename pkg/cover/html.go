@@ -186,7 +186,23 @@ func (rg *ReportGenerator) DoRawCoverFiles(w http.ResponseWriter, progs []Prog, 
 		}
 		offset := frame.PC - frame.Module.Addr
 		if pc != frame.PC {
-			log.Logf(0, "pc (0x%x) != frame.PC (0x%x) for module %v, offset=0x%x\n", pc, frame.PC, frame.Module.Name, offset)
+			// Not log line number 0
+			found := false
+			for _, s := range rg.Symbols {
+				for _, pc1 := range s.PCs {
+					if pc == pc1 {
+						found = true
+					}
+				}
+			}
+			if !found {
+				// if here, means possible bug in KCOV build?
+				// possible reasons include
+				// * kernel module not loaded into fixed address
+				// * module symbols address are aligned with elf
+				// * module dwarf info has been stripped
+				log.Logf(0, "pc (0x%x) != frame.PC (0x%x) for module %v, offset=0x%x\n", pc, frame.PC, frame.Module.Name, offset)
+			}
 		}
 		fmt.Fprintf(buf, "0x%x,%v,0x%x,%v,%v\n", pc, frame.Module.Name, offset, frame.Name, frame.StartLine)
 	}
