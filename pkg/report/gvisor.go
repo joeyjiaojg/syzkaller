@@ -6,13 +6,15 @@ package report
 import (
 	"bytes"
 	"regexp"
+
+	"github.com/google/syzkaller/pkg/cover/backend"
 )
 
 type gvisor struct {
 	*config
 }
 
-func ctorGvisor(cfg *config) (reporterImpl, []string, error) {
+func ctorGvisor(cfg *config, modules []*backend.Module) (reporterImpl, []string, error) {
 	ctx := &gvisor{
 		config: cfg,
 	}

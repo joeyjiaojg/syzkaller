@@ -208,7 +208,7 @@ func (env *env) Test(numVMs int, reproSyz, reproOpts, reproC []byte) ([]error, e
 	if err := mgrconfig.Complete(env.cfg); err != nil {
 		return nil, err
 	}
-	reporter, err := report.NewReporter(env.cfg)
+	reporter, err := report.NewReporter(env.cfg, nil)
 	if err != nil {
 		return nil, err
 	}

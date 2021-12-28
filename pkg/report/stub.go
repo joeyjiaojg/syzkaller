@@ -3,11 +3,13 @@
 
 package report
 
+import "github.com/google/syzkaller/pkg/cover/backend"
+
 type stub struct {
 	*config
 }
 
-func ctorStub(cfg *config) (reporterImpl, []string, error) {
+func ctorStub(cfg *config, modules []*backend.Module) (reporterImpl, []string, error) {
 	ctx := &stub{
 		config: cfg,
 	}

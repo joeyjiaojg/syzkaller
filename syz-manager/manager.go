@@ -20,6 +20,7 @@ import (
 
 	"github.com/google/syzkaller/dashboard/dashapi"
 	"github.com/google/syzkaller/pkg/cover"
+	"github.com/google/syzkaller/pkg/cover/backend"
 	"github.com/google/syzkaller/pkg/csource"
 	"github.com/google/syzkaller/pkg/db"
 	"github.com/google/syzkaller/pkg/gce"
@@ -88,7 +89,8 @@ type Manager struct {
 	// Maps file name to modification time.
 	usedFiles map[string]time.Time
 
-	modules            []*host.KernelModule
+	kernelModules      []*host.KernelModule
+	modules            []*backend.Module
 	coverFilter        map[uint32]uint32
 	coverFilterBitmap  []byte
 	modulesInitialized bool
@@ -147,7 +149,11 @@ func RunManager(cfg *mgrconfig.Config) {
 	crashdir := filepath.Join(cfg.Workdir, "crashes")
 	osutil.MkdirAll(crashdir)
 
-	reporter, err := report.NewReporter(cfg)
+	modules, err := backend.DiscoverModules1(cfg.SysTarget, cfg.KernelObj, cfg.ModuleObj)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	reporter, err := report.NewReporter(cfg, modules)
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
@@ -1053,7 +1059,7 @@ func (mgr *Manager) collectSyscallInfoUnlocked() map[string]*CallCov {
 	return calls
 }
 
-func (mgr *Manager) fuzzerConnect(modules []*host.KernelModule) (
+func (mgr *Manager) fuzzerConnect(kernelModules []*host.KernelModule) (
 	[]rpctype.Input, BugFrames, map[uint32]uint32, []byte, error) {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
@@ -1075,6 +1081,11 @@ func (mgr *Manager) fuzzerConnect(modules []*host.KernelModule) (
 	}
 	if !mgr.modulesInitialized {
 		var err error
+		mgr.kernelModules = kernelModules
+		modules, err := backend.DiscoverModules(mgr.sysTarget, mgr.cfg.KernelObj, mgr.cfg.ModuleObj, kernelModules)
+		if err != nil {
+			return nil, frames, nil, nil, err
+		}
 		mgr.modules = modules
 		mgr.coverFilterBitmap, mgr.coverFilter, err = mgr.createCoverageFilter()
 		if err != nil {
@@ -1082,8 +1093,8 @@ func (mgr *Manager) fuzzerConnect(modules []*host.KernelModule) (
 		}
 		mgr.modulesInitialized = true
 	} else {
-		for _, m1 := range modules {
-			for _, m2 := range mgr.modules {
+		for _, m1 := range kernelModules {
+			for _, m2 := range mgr.kernelModules {
 				if m1.Name == m2.Name {
 					if m1.Addr != m2.Addr {
 						log.Logf(0, "module load address varies across reboot for module %v (%x : %x)", m1.Name, m1.Addr, m2.Addr)

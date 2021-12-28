@@ -335,7 +335,7 @@ func forEachFile(t *testing.T, dir string, fn func(t *testing.T, reporter *Repor
 				SysTarget:  targets.Get(os, targets.AMD64),
 			},
 		}
-		reporter, err := NewReporter(cfg)
+		reporter, err := NewReporter(cfg, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

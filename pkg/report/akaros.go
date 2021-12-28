@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/syzkaller/pkg/cover/backend"
 	"github.com/google/syzkaller/pkg/symbolizer"
 )
 
@@ -20,7 +21,7 @@ type akaros struct {
 	objfile string
 }
 
-func ctorAkaros(cfg *config) (reporterImpl, []string, error) {
+func ctorAkaros(cfg *config, modules []*backend.Module) (reporterImpl, []string, error) {
 	ctx := &akaros{
 		config: cfg,
 	}

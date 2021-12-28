@@ -16,7 +16,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/google/syzkaller/pkg/host"
 	"github.com/google/syzkaller/pkg/osutil"
 	"github.com/google/syzkaller/pkg/symbolizer"
 	"github.com/google/syzkaller/sys/targets"
@@ -62,7 +61,7 @@ var arches = map[string]Arch{
 }
 
 func makeDWARF(target *targets.Target, objDir, srcDir, buildDir string,
-	moduleObj []string, hostModules []*host.KernelModule, fn *containerFns) (
+	moduleObj []string, modules []*Module, fn *containerFns) (
 	impl *Impl, err error) {
 	defer func() {
 		// It turns out that the DWARF-parsing library in Go crashes while parsing DWARF 5 data.
@@ -75,17 +74,12 @@ func makeDWARF(target *targets.Target, objDir, srcDir, buildDir string,
 				"(possible remedy: use go1.16+ which support DWARF 5 debug data): %s", recErr)
 		}
 	}()
-	impl, err = makeDWARFUnsafe(target, objDir, srcDir, buildDir, moduleObj, hostModules, fn)
+	impl, err = makeDWARFUnsafe(target, objDir, srcDir, buildDir, moduleObj, modules, fn)
 	return
 }
 func makeDWARFUnsafe(target *targets.Target, objDir, srcDir, buildDir string,
-	moduleObj []string, hostModules []*host.KernelModule, fn *containerFns) (
+	moduleObj []string, modules []*Module, fn *containerFns) (
 	*Impl, error) {
-	modules, err := discoverModules(target, objDir, moduleObj, hostModules)
-	if err != nil {
-		return nil, err
-	}
-
 	// Here and below index 0 refers to coverage callbacks (__sanitizer_cov_trace_pc(_guard))
 	// and index 1 refers to comparison callbacks (__sanitizer_cov_trace_cmp*).
 	var allCoverPoints [2][]uint64

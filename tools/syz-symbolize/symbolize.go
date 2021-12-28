@@ -43,7 +43,7 @@ func main() {
 		tool.Fail(err)
 	}
 	cfg.CompleteKernelDirs()
-	reporter, err := report.NewReporter(cfg)
+	reporter, err := report.NewReporter(cfg, nil)
 	if err != nil {
 		tool.Failf("failed to create reporter: %v", err)
 	}

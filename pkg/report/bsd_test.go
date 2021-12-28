@@ -59,7 +59,7 @@ func testSymbolizeLine(t *testing.T, ctor fn, tests []symbolizeLineTest) {
 	reporter, _, err := ctor(&config{
 		kernelSrc:      "/bsd/src2",
 		kernelBuildSrc: "/bsd/src",
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

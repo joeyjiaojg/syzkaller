@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/google/syzkaller/pkg/cover/backend"
 	"github.com/google/syzkaller/pkg/mgrconfig"
 	"github.com/google/syzkaller/pkg/vcs"
 	"github.com/google/syzkaller/sys/targets"
@@ -34,6 +35,7 @@ type Reporter struct {
 	impl         reporterImpl
 	suppressions []*regexp.Regexp
 	interests    []*regexp.Regexp
+	Modules      []*backend.Module
 }
 
 type Report struct {
@@ -99,7 +101,7 @@ func (t Type) String() string {
 }
 
 // NewReporter creates reporter for the specified OS/Type.
-func NewReporter(cfg *mgrconfig.Config) (*Reporter, error) {
+func NewReporter(cfg *mgrconfig.Config, modules []*backend.Module) (*Reporter, error) {
 	typ := cfg.TargetOS
 	if cfg.Type == "gvisor" {
 		typ = cfg.Type
@@ -123,7 +125,7 @@ func NewReporter(cfg *mgrconfig.Config) (*Reporter, error) {
 		kernelObj:      cfg.KernelObj,
 		ignores:        ignores,
 	}
-	rep, suppressions, err := ctor(config)
+	rep, suppressions, err := ctor(config, modules)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +169,7 @@ type config struct {
 	ignores        []*regexp.Regexp
 }
 
-type fn func(cfg *config) (reporterImpl, []string, error)
+type fn func(cfg *config, modules []*backend.Module) (reporterImpl, []string, error)
 
 func compileRegexps(list []string) ([]*regexp.Regexp, error) {
 	compiled := make([]*regexp.Regexp, len(list))

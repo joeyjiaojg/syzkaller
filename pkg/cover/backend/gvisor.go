@@ -10,13 +10,12 @@ import (
 	"regexp"
 	"strconv"
 
-	"github.com/google/syzkaller/pkg/host"
 	"github.com/google/syzkaller/pkg/osutil"
 	"github.com/google/syzkaller/sys/targets"
 )
 
-func makeGvisor(target *targets.Target, objDir, srcDir, buildDir string, modules []*host.KernelModule) (*Impl, error) {
-	if len(modules) != 0 {
+func makeGvisor(target *targets.Target, objDir, srcDir, buildDir string, modules []*Module) (*Impl, error) {
+	if len(modules) != 1 {
 		return nil, fmt.Errorf("gvisor coverage does not support modules")
 	}
 	bin := filepath.Join(objDir, target.KernelObject)

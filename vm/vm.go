@@ -227,7 +227,7 @@ func (inst *Instance) MonitorExecution(outc <-chan []byte, errc <-chan error,
 				bytes.Contains(mon.output[lastPos:], executingProgram2) {
 				lastExecuteTime = time.Now()
 			}
-			if reporter.ContainsCrash(mon.output[mon.matchPos:]) {
+			if reporter != nil && reporter.ContainsCrash(mon.output[mon.matchPos:]) {
 				return mon.extractError("unknown error")
 			}
 			if len(mon.output) > 2*beforeContext {
