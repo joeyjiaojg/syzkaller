@@ -356,7 +356,7 @@ func testMonitorExecution(t *testing.T, test *Test) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reporter, err := report.NewReporter(cfg)
+	reporter, err := report.NewReporter(cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

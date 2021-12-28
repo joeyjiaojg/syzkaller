@@ -65,7 +65,7 @@ func main() {
 		log.Fatalf("%v", err)
 	}
 
-	reporter, err := report.NewReporter(cfg)
+	reporter, err := report.NewReporter(cfg, nil)
 	if err != nil {
 		log.Fatalf("%v", err)
 	}

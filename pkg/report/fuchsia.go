@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/syzkaller/pkg/cover/backend"
 	"github.com/google/syzkaller/pkg/symbolizer"
 	"github.com/ianlancetaylor/demangle"
 )
@@ -38,7 +39,7 @@ var (
 	}
 )
 
-func ctorFuchsia(cfg *config) (reporterImpl, []string, error) {
+func ctorFuchsia(cfg *config, modules []*backend.Module) (reporterImpl, []string, error) {
 	ctx := &fuchsia{
 		config: cfg,
 	}

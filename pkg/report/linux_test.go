@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/syzkaller/pkg/cover/backend"
 	"github.com/google/syzkaller/pkg/mgrconfig"
 	"github.com/google/syzkaller/pkg/osutil"
 	"github.com/google/syzkaller/pkg/symbolizer"
@@ -26,22 +27,22 @@ func TestLinuxIgnores(t *testing.T) {
 			TargetArch: targets.AMD64,
 		},
 	}
-	reporter, err := NewReporter(cfg)
+	reporter, err := NewReporter(cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg.Ignores = []string{"BUG: bug3"}
-	reporter1, err := NewReporter(cfg)
+	reporter1, err := NewReporter(cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg.Ignores = []string{"BUG: bug3", "BUG: bug1"}
-	reporter2, err := NewReporter(cfg)
+	reporter2, err := NewReporter(cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg.Ignores = []string{"BUG: bug3", "BUG: bug1", "BUG: bug2"}
-	reporter3, err := NewReporter(cfg)
+	reporter3, err := NewReporter(cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,17 +147,19 @@ func TestLinuxSymbolizeLine(t *testing.T) {
 			"[<ffffffff82d1b1d9>] baz+0x101/0x200 baz.c:100\n",
 		},
 	}
-	symbols := map[string][]symbolizer.Symbol{
-		"foo": {
-			{Addr: 0x1000000, Size: 0x190},
-		},
-		"do_ipv6_setsockopt.isra.7.part.3": {
-			{Addr: 0x2000000, Size: 0x2830},
-		},
-		"baz": {
-			{Addr: 0x3000000, Size: 0x100},
-			{Addr: 0x4000000, Size: 0x200},
-			{Addr: 0x5000000, Size: 0x300},
+	symbols := map[string]map[string][]symbolizer.Symbol{
+		"": {
+			"foo": {
+				{Addr: 0x1000000, Size: 0x190},
+			},
+			"do_ipv6_setsockopt.isra.7.part.3": {
+				{Addr: 0x2000000, Size: 0x2830},
+			},
+			"baz": {
+				{Addr: 0x3000000, Size: 0x100},
+				{Addr: 0x4000000, Size: 0x200},
+				{Addr: 0x5000000, Size: 0x300},
+			},
 		},
 	}
 	symb := func(bin string, pc uint64) ([]symbolizer.Frame, error) {
@@ -228,9 +231,16 @@ func TestLinuxSymbolizeLine(t *testing.T) {
 			return nil, fmt.Errorf("unknown pc 0x%x", pc)
 		}
 	}
+	modules := []*backend.Module{
+		{
+			Name: "",
+			Addr: 0,
+			Path: "vmlinux",
+		},
+	}
 	for i, test := range tests {
 		t.Run(fmt.Sprint(i), func(t *testing.T) {
-			result := symbolizeLine(symb, symbols, "vmlinux", "/linux", []byte(test.line))
+			result := symbolizeLine(symb, symbols, modules, "/linux", []byte(test.line))
 			if test.result != string(result) {
 				t.Errorf("want %q\n\t     get %q", test.result, string(result))
 			}
@@ -242,7 +252,7 @@ func prepareLinuxReporter(t *testing.T, arch string) *linux {
 	config := &config{
 		target: targets.Get(targets.Linux, arch),
 	}
-	reporter, _, err := ctorLinux(config)
+	reporter, _, err := ctorLinux(config, nil)
 	if err != nil {
 		t.Errorf("Failed to create a reporter instance %#v", arch)
 	}

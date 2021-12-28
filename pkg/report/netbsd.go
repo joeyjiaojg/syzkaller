@@ -5,9 +5,11 @@ package report
 
 import (
 	"regexp"
+
+	"github.com/google/syzkaller/pkg/cover/backend"
 )
 
-func ctorNetbsd(cfg *config) (reporterImpl, []string, error) {
+func ctorNetbsd(cfg *config, modules []*backend.Module) (reporterImpl, []string, error) {
 	symbolizeRes := []*regexp.Regexp{
 		// stack
 		regexp.MustCompile(` at netbsd:([A-Za-z0-9_]+)\+0x([0-9a-f]+)`),

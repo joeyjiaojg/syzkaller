@@ -10,13 +10,25 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/google/syzkaller/pkg/host"
 	"github.com/google/syzkaller/pkg/log"
 	"github.com/google/syzkaller/sys/targets"
 )
 
-func discoverModules(target *targets.Target, objDir string, moduleObj []string, hostModules []*host.KernelModule) (
+var (
+	once sync.Once
+	paths map[string]string
+)
+
+type Module struct {
+	Name string
+	Path string
+	Addr uint64
+}
+
+func DiscoverModules(target *targets.Target, objDir string, moduleObj []string, hostModules []*host.KernelModule) (
 	[]*Module, error) {
 	modules := []*Module{
 		// A dummy module representing the kernel itself.
@@ -65,30 +77,70 @@ func discoverModulesLinux(dirs []string, hostModules []*host.KernelModule) ([]*M
 	return modules, nil
 }
 
-func locateModules(dirs []string) (map[string]string, error) {
-	paths := make(map[string]string)
-	for _, dir := range dirs {
-		err := filepath.Walk(dir, func(path string, f os.FileInfo, err error) error {
-			if err != nil || filepath.Ext(path) != ".ko" {
-				return err
-			}
-			name, err := getModuleName(path)
-			if err != nil {
-				// Extracting module name involves parsing ELF and binary data,
-				// let's not fail on it, we still have the file name,
-				// which is usually the right module name.
-				log.Logf(0, "failed to get %v module name: %v", path, err)
-				name = strings.TrimSuffix(filepath.Base(path), "."+filepath.Ext(path))
-			}
-			// Order of dirs determine priority, so don't overwrite already discovered names.
-			if name != "" && paths[name] == "" {
-				paths[name] = path
-			}
-			return nil
-		})
+func DiscoverModules1(target *targets.Target, objDir string, moduleObj []string) (
+	[]*Module, error) {
+	modules := []*Module{
+		// A dummy module representing the kernel itself.
+		{Path: filepath.Join(objDir, target.KernelObject)},
+	}
+	if target.OS == targets.Linux {
+		modules1, err := discoverModulesLinux1(append([]string{objDir}, moduleObj...))
 		if err != nil {
 			return nil, err
 		}
+		modules = append(modules, modules1...)
+	} else if len(modules) != 1 {
+		return nil, fmt.Errorf("%v coverage does not support modules", target.OS)
+	}
+	return modules, nil
+}
+
+func discoverModulesLinux1(dirs []string) ([]*Module, error) {
+	paths, err := locateModules(dirs)
+	if err != nil {
+		return nil, err
+	}
+	var modules []*Module
+	for name, path := range paths {
+		if path == "" {
+			continue
+		}
+		modules = append(modules, &Module{
+			Name: name,
+			Path: path,
+		})
+	}
+	return modules, nil
+}
+
+func locateModules(dirs []string) (map[string]string, error) {
+	var err error
+	once.Do(func() {
+		paths = make(map[string]string)
+		for _, dir := range dirs {
+			err = filepath.Walk(dir, func(path string, f os.FileInfo, err error) error {
+				if err != nil || filepath.Ext(path) != ".ko" {
+					return err
+				}
+				name, err := getModuleName(path)
+				if err != nil {
+					// Extracting module name involves parsing ELF and binary data,
+					// let's not fail on it, we still have the file name,
+					// which is usually the right module name.
+					log.Logf(0, "failed to get %v module name: %v", path, err)
+					name = strings.TrimSuffix(filepath.Base(path), "."+filepath.Ext(path))
+				}
+				// Order of dirs determine priority, so don't overwrite already discovered names.
+				if name != "" && paths[name] == "" {
+					paths[name] = path
+				}
+				return nil
+			})
+
+		}
+	})
+	if err != nil {
+		return nil, err
 	}
 	return paths, nil
 }

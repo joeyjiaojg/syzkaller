@@ -5,9 +5,11 @@ package report
 
 import (
 	"regexp"
+
+	"github.com/google/syzkaller/pkg/cover/backend"
 )
 
-func ctorDarwin(cfg *config) (reporterImpl, []string, error) {
+func ctorDarwin(cfg *config, modules []*backend.Module) (reporterImpl, []string, error) {
 	symbolizeRes := []*regexp.Regexp{}
 	ctx, err := ctorBSD(cfg, darwinOopses, symbolizeRes)
 	return ctx, nil, err

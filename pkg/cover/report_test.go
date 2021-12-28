@@ -265,7 +265,11 @@ func generateReport(t *testing.T, target *targets.Target, test Test) ([]byte, []
 		},
 	}
 
-	rg, err := MakeReportGenerator(target, "", dir, dir, dir, subsystem, nil, nil)
+	modules, err := backend.DiscoverModules(target, dir, nil, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	rg, err := MakeReportGenerator(target, "", dir, dir, dir, subsystem, nil, modules)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/syzkaller/pkg/cover/backend"
 	"github.com/google/syzkaller/pkg/osutil"
 	"github.com/google/syzkaller/pkg/symbolizer"
 	"github.com/google/syzkaller/pkg/vcs"
@@ -23,7 +24,7 @@ import (
 type linux struct {
 	*config
 	vmlinux               string
-	symbols               map[string][]symbolizer.Symbol
+	symbols               map[string]map[string][]symbolizer.Symbol
 	consoleOutputRe       *regexp.Regexp
 	taskContext           *regexp.Regexp
 	cpuContext            *regexp.Regexp
@@ -33,24 +34,36 @@ type linux struct {
 	reportStartIgnores    []*regexp.Regexp
 	infoMessagesWithStack [][]byte
 	eoi                   []byte
+	modules               []*backend.Module
 }
 
-func ctorLinux(cfg *config) (reporterImpl, []string, error) {
-	var symbols map[string][]symbolizer.Symbol
+func ctorLinux(cfg *config, modules []*backend.Module) (reporterImpl, []string, error) {
+	symbols := make(map[string]map[string][]symbolizer.Symbol)
 	vmlinux := ""
 	if cfg.kernelObj != "" {
 		vmlinux = filepath.Join(cfg.kernelObj, cfg.target.KernelObject)
 		var err error
 		symb := symbolizer.NewSymbolizer(cfg.target)
-		symbols, err = symb.ReadTextSymbols(vmlinux)
+		symbols[""], err = symb.ReadTextSymbols(vmlinux)
 		if err != nil {
 			return nil, nil, err
+		}
+		for _, mod := range modules {
+			if mod.Name == "" {
+				continue
+			}
+			ss, err := symb.ReadTextSymbols(mod.Path)
+			if err != nil {
+				continue
+			}
+			symbols[mod.Name] = ss
 		}
 	}
 	ctx := &linux{
 		config:  cfg,
 		vmlinux: vmlinux,
 		symbols: symbols,
+		modules: modules,
 	}
 	// nolint: lll
 	ctx.consoleOutputRe = regexp.MustCompile(`^(?:\*\* [0-9]+ printk messages dropped \*\* )?(?:.* login: )?(?:\<[0-9]+\>)?\[ *[0-9]+\.[0-9]+\](\[ *(?:C|T)[0-9]+\])? `)
@@ -391,7 +404,7 @@ func (ctx *linux) symbolize(rep *Report) error {
 	for s.Scan() {
 		line := append([]byte{}, s.Bytes()...)
 		line = append(line, '\n')
-		newLine := symbolizeLine(symb.Symbolize, ctx.symbols, ctx.vmlinux, ctx.kernelBuildSrc, line)
+		newLine := symbolizeLine(symb.Symbolize, ctx.symbols, ctx.modules, ctx.kernelBuildSrc, line)
 		if prefix > len(symbolized) {
 			prefix += len(newLine) - len(line)
 		}
@@ -403,7 +416,7 @@ func (ctx *linux) symbolize(rep *Report) error {
 }
 
 func symbolizeLine(symbFunc func(bin string, pc uint64) ([]symbolizer.Frame, error),
-	symbols map[string][]symbolizer.Symbol, vmlinux, strip string, line []byte) []byte {
+	symbols map[string]map[string][]symbolizer.Symbol, modules []*backend.Module, strip string, line []byte) []byte {
 	match := linuxSymbolizeRe.FindSubmatchIndex(line)
 	if match == nil {
 		return line
@@ -417,7 +430,11 @@ func symbolizeLine(symbFunc func(bin string, pc uint64) ([]symbolizer.Frame, err
 	if err != nil {
 		return line
 	}
-	symb := symbols[string(fn)]
+	modName := ""
+	if match[8] != -1 && match[9] != -1 {
+		modName = string(line[match[8]:match[9]])
+	}
+	symb := symbols[modName][string(fn)]
 	if len(symb) == 0 {
 		return line
 	}
@@ -433,7 +450,14 @@ func symbolizeLine(symbFunc func(bin string, pc uint64) ([]symbolizer.Frame, err
 		// But RIP lines contain the exact faulting PC.
 		pc--
 	}
-	frames, err := symbFunc(vmlinux, pc)
+	var bin string
+	for _, mod := range modules {
+		if mod.Name == modName {
+			bin = mod.Path
+			break
+		}
+	}
+	frames, err := symbFunc(bin, pc)
 	if err != nil || len(frames) == 0 {
 		return line
 	}
@@ -959,7 +983,7 @@ var linuxStallAnchorFrames = []*regexp.Regexp{
 
 // nolint: lll
 var (
-	linuxSymbolizeRe     = regexp.MustCompile(`(?:\[\<(?:(?:0x)?[0-9a-f]+)\>\])?[ \t]+\(?(?:[0-9]+:)?([a-zA-Z0-9_.]+)\+0x([0-9a-f]+)/0x([0-9a-f]+)\)?`)
+	linuxSymbolizeRe     = regexp.MustCompile(`(?:\[\<(?:(?:0x)?[0-9a-f]+)\>\])?[ \t]+\(?(?:[0-9]+:)?([a-zA-Z0-9_.]+)\+0x([0-9a-f]+)/0x([0-9a-f]+)(?:[ \t]+)?\[?([a-zA-Z0-9_.-]+)?\]?\)?`)
 	linuxRipFrame        = compile(`(?:IP|NIP|pc |PC is at):? (?:(?:[0-9]+:)?(?:{{PC}} +){0,2}{{FUNC}}|(?:[0-9]+:)?0x[0-9a-f]+|(?:[0-9]+:)?{{PC}} +\[< *\(null\)>\] +\(null\)|[0-9]+: +\(null\))`)
 	linuxCallTrace       = compile(`(?:Call (?:T|t)race:)|(?:Backtrace:)`)
 	linuxCodeRe          = regexp.MustCompile(`(?m)^\s*Code\:\s+((?:[A-Fa-f0-9\(\)\<\>]{2,8}\s*)*)\s*$`)

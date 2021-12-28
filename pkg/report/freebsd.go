@@ -6,13 +6,15 @@ package report
 import (
 	"bytes"
 	"regexp"
+
+	"github.com/google/syzkaller/pkg/cover/backend"
 )
 
 type freebsd struct {
 	*config
 }
 
-func ctorFreebsd(cfg *config) (reporterImpl, []string, error) {
+func ctorFreebsd(cfg *config, modules []*backend.Module) (reporterImpl, []string, error) {
 	ctx := &freebsd{
 		config: cfg,
 	}

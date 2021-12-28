@@ -76,7 +76,7 @@ var fuzzReporters = func() map[string]*Reporter {
 				TargetArch: targets.AMD64,
 			},
 		}
-		reporter, err := NewReporter(cfg)
+		reporter, err := NewReporter(cfg, nil)
 		if err != nil {
 			panic(err)
 		}

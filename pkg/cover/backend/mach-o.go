@@ -10,13 +10,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/google/syzkaller/pkg/host"
 	"github.com/google/syzkaller/sys/targets"
 )
 
 func makeMachO(target *targets.Target, objDir, srcDir, buildDir string,
-	moduleObj []string, hostModules []*host.KernelModule) (*Impl, error) {
-	return makeDWARF(target, objDir, srcDir, buildDir, moduleObj, hostModules,
+	moduleObj []string, modules []*Module) (*Impl, error) {
+	return makeDWARF(target, objDir, srcDir, buildDir, moduleObj, modules,
 		&containerFns{
 			readSymbols:           machoReadSymbols,
 			readTextData:          machoReadTextData,

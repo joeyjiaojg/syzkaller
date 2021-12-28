@@ -150,7 +150,7 @@ func main() {
 
 	for idx, pi := range pools {
 		var err error
-		pi.Reporter, err = report.NewReporter(pi.cfg)
+		pi.Reporter, err = report.NewReporter(pi.cfg, nil)
 		if err != nil {
 			log.Fatalf("failed to create reporter for instance-%d: %v", idx, err)
 		}
