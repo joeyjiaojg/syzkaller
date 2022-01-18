@@ -66,7 +66,7 @@ var arches = map[string]Arch{
 }
 
 func makeDWARF(target *targets.Target, objDir, srcDir, buildDir string,
-	moduleObj []string, hostModules []host.KernelModule, fn *containerFns) (
+	moduleObj []string, hostModules []*host.KernelModule, fn *containerFns) (
 	impl *Impl, err error) {
 	defer func() {
 		// It turns out that the DWARF-parsing library in Go crashes while parsing DWARF 5 data.
@@ -83,7 +83,7 @@ func makeDWARF(target *targets.Target, objDir, srcDir, buildDir string,
 	return
 }
 func makeDWARFUnsafe(target *targets.Target, objDir, srcDir, buildDir string,
-	moduleObj []string, hostModules []host.KernelModule, fn *containerFns) (
+	moduleObj []string, hostModules []*host.KernelModule, fn *containerFns) (
 	*Impl, error) {
 	modules, err := discoverModules(target, objDir, moduleObj, hostModules)
 	if err != nil {
