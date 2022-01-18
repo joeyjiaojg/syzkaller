@@ -504,7 +504,7 @@ func groupCoverByModule(datas []fileStats) map[string]map[string]string {
 		pcsInFuncs := fmt.Sprintf("%v / %v / %.2f%%", coveredPCsInFuncs[m], pcsInFuncs[m], percentPCsInFunc[m])
 		covedFuncs := fmt.Sprintf("%v / %v / %.2f%%", coveredPCsInFuncs[m], pcsInCoveredFuncs[m], percentPCsInCoveredFunc[m])
 		if m == "" {
-			m = "vmlinux"
+			m = "kernel"
 		}
 		d[m] = map[string]string{
 			"name":              m,
