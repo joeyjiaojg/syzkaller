@@ -95,7 +95,7 @@ func (serv *RPCServer) Connect(a *rpctype.ConnectArgs, r *rpctype.ConnectRes) er
 		return err
 	}
 	serv.coverFilter = coverFilter
-	serv.modules = a.Modules
+	serv.cfg.SysTarget.ModuleLoadOffset = a.ModuleLoadOffset
 
 	serv.mu.Lock()
 	defer serv.mu.Unlock()
