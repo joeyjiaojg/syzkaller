@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/google/syzkaller/pkg/cover/backend"
+	"github.com/google/syzkaller/pkg/log"
 	"github.com/google/syzkaller/pkg/mgrconfig"
 )
 
@@ -153,16 +154,55 @@ func (rg *ReportGenerator) DoRawCoverFiles(w http.ResponseWriter, progs []Prog, 
 	if err := rg.lazySymbolize(progs); err != nil {
 		return err
 	}
-	sort.Slice(rg.Frames, func(i, j int) bool {
-		return rg.Frames[i].PC < rg.Frames[j].PC
+	var pcs []uint64
+	uniquePCs := make(map[uint64]bool)
+	for _, prog := range progs {
+		for _, pc := range prog.PCs {
+			if !uniquePCs[pc] {
+				uniquePCs[pc] = true
+				pcs = append(pcs, pc)
+			}
+		}
+	}
+	sort.Slice(pcs, func(i, j int) bool {
+		return pcs[i] < pcs[j]
 	})
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	buf := bufio.NewWriter(w)
-	fmt.Fprintf(buf, "PC,Module,Offset,Filename,StartLine,EndLine\n")
-	for _, frame := range rg.Frames {
+	fmt.Fprintf(buf, "PC,Module,Offset,Filename,StartLine\n")
+	for _, pc := range pcs {
+		idx := sort.Search(len(rg.Frames), func(i int) bool {
+			return pc < rg.Frames[i].PC
+		})
+		if idx == 0 {
+			continue
+		}
+		frame := rg.Frames[idx-1]
+		// check https://issuetracker.google.com/issues/202989055, it's possible pc != frame.PC,
+		// but we need to count the pc.
+		// So in /rawcoverfiles, possible this line 0xffffffc0115db624,,0xffffffc0115db61c,net/ipv6/ip6_fib.c,1731
 		offset := frame.PC - frame.Module.Addr
-		fmt.Fprintf(buf, "0x%x,%v,0x%x,%v,%v\n", frame.PC, frame.Module.Name, offset, frame.Name, frame.StartLine)
+		if pc != frame.PC {
+			// Not log line number 0
+			found := false
+			for _, s := range rg.Symbols {
+				for _, pc1 := range s.PCs {
+					if pc == pc1 {
+						found = true
+					}
+				}
+			}
+			if !found {
+				// if here, means possible bug in KCOV build?
+				// possible reasons include
+				// * kernel module not loaded into fixed address
+				// * module symbols address are aligned with elf
+				// * module dwarf info has been stripped
+				log.Logf(0, "pc (0x%x) != frame.PC (0x%x) for module %v, offset=0x%x", pc, frame.PC, frame.Module.Name, offset)
+			}
+		}
+		fmt.Fprintf(buf, "0x%x,%v,0x%x,%v,%v\n", pc, frame.Module.Name, offset, frame.Name, frame.StartLine)
 	}
 	buf.Flush()
 	return nil
