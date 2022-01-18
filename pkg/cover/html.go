@@ -21,12 +21,34 @@ import (
 
 	"github.com/google/syzkaller/pkg/cover/backend"
 	"github.com/google/syzkaller/pkg/mgrconfig"
-	"github.com/google/syzkaller/sys/targets"
 )
 
-func fixUpPCs(target string, progs []Prog, coverFilter map[uint32]uint32) []Prog {
+func (rg *ReportGenerator) FixupPCs(progs []Prog, coverFilter map[uint32]uint32,
+	moduleLoadOffset int) []Prog {
+	nProgs := make([]Prog, len(progs))
+	copy(nProgs, progs)
+
+	// Like on arm64 as PLT is enabled by default, .text section is loaded after .plt section,
+	// so there is X bytes offset from module load address for .text section
+	// we need to remove the X bytes offset in order to correct module symbol address.
+	// On some chip, the offset is 0x18 while some newer chip is 0x24,
+	// so for linux, auto detects the offset by subtract module load address from first loaded symbol in module.
+	if moduleLoadOffset != 0 {
+		for i, prog := range nProgs {
+			var nPCs []uint64
+			for _, pc := range prog.PCs {
+				if pc < rg.BaseAddr {
+					pc -= uint64(moduleLoadOffset)
+				}
+				nPCs = append(nPCs, pc)
+			}
+			prog.PCs = nPCs
+			nProgs[i] = prog
+		}
+	}
+
 	if coverFilter != nil {
-		for _, prog := range progs {
+		for i, prog := range nProgs {
 			var nPCs []uint64
 			for _, pc := range prog.PCs {
 				if coverFilter[uint32(pc)] != 0 {
@@ -34,30 +56,15 @@ func fixUpPCs(target string, progs []Prog, coverFilter map[uint32]uint32) []Prog
 				}
 			}
 			prog.PCs = nPCs
+			nProgs[i] = prog
 		}
 	}
-
-	// On arm64 as PLT is enabled by default, .text section is loaded after .plt section,
-	// so there is 0x18 bytes offset from module load address for .text section
-	// we need to remove the 0x18 bytes offset in order to correct module symbol address
-	if target == targets.ARM64 {
-		for _, prog := range progs {
-			var nPCs []uint64
-			for _, pc := range prog.PCs {
-				// TODO: avoid to hardcode the address
-				if pc < 0xffffffd010000000 {
-					pc -= 0x18
-				}
-				nPCs = append(nPCs, pc)
-			}
-			prog.PCs = nPCs
-		}
-	}
-	return progs
+	return nProgs
 }
 
-func (rg *ReportGenerator) DoHTML(w io.Writer, progs []Prog, coverFilter map[uint32]uint32) error {
-	progs = fixUpPCs(rg.target.Arch, progs, coverFilter)
+func (rg *ReportGenerator) DoHTML(w io.Writer, progs []Prog, coverFilter map[uint32]uint32,
+	moduleLoadOffset int) error {
+	progs = rg.FixupPCs(progs, coverFilter, moduleLoadOffset)
 	files, err := rg.prepareFileMap(progs)
 	if err != nil {
 		return err
@@ -140,8 +147,9 @@ func (rg *ReportGenerator) DoHTML(w io.Writer, progs []Prog, coverFilter map[uin
 	return coverTemplate.Execute(w, d)
 }
 
-func (rg *ReportGenerator) DoRawCoverFiles(w http.ResponseWriter, progs []Prog, coverFilter map[uint32]uint32) error {
-	progs = fixUpPCs(rg.target.Arch, progs, coverFilter)
+func (rg *ReportGenerator) DoRawCoverFiles(w http.ResponseWriter, progs []Prog, coverFilter map[uint32]uint32,
+	moduleLoadOffset int) error {
+	progs = rg.FixupPCs(progs, coverFilter, moduleLoadOffset)
 	if err := rg.lazySymbolize(progs); err != nil {
 		return err
 	}
@@ -160,8 +168,9 @@ func (rg *ReportGenerator) DoRawCoverFiles(w http.ResponseWriter, progs []Prog, 
 	return nil
 }
 
-func (rg *ReportGenerator) DoRawCover(w http.ResponseWriter, progs []Prog, coverFilter map[uint32]uint32) {
-	progs = fixUpPCs(rg.target.Arch, progs, coverFilter)
+func (rg *ReportGenerator) DoRawCover(w http.ResponseWriter, progs []Prog, coverFilter map[uint32]uint32,
+	moduleLoadOffset int) {
+	progs = rg.FixupPCs(progs, coverFilter, moduleLoadOffset)
 	var pcs []uint64
 	uniquePCs := make(map[uint64]bool)
 	for _, prog := range progs {
@@ -185,8 +194,9 @@ func (rg *ReportGenerator) DoRawCover(w http.ResponseWriter, progs []Prog, cover
 	buf.Flush()
 }
 
-func (rg *ReportGenerator) DoFilterPCs(w http.ResponseWriter, progs []Prog, coverFilter map[uint32]uint32) {
-	progs = fixUpPCs(rg.target.Arch, progs, coverFilter)
+func (rg *ReportGenerator) DoFilterPCs(w http.ResponseWriter, progs []Prog, coverFilter map[uint32]uint32,
+	moduleLoadOffset int) {
+	progs = rg.FixupPCs(progs, coverFilter, moduleLoadOffset)
 	var pcs []uint64
 	uniquePCs := make(map[uint64]bool)
 	for _, prog := range progs {
@@ -289,8 +299,9 @@ func (rg *ReportGenerator) convertToStats(progs []Prog) ([]fileStats, error) {
 	return data, nil
 }
 
-func (rg *ReportGenerator) DoCSVFiles(w io.Writer, progs []Prog, coverFilter map[uint32]uint32) error {
-	progs = fixUpPCs(rg.target.Arch, progs, coverFilter)
+func (rg *ReportGenerator) DoCSVFiles(w io.Writer, progs []Prog, coverFilter map[uint32]uint32,
+	moduleLoadOffset int) error {
+	progs = rg.FixupPCs(progs, coverFilter, moduleLoadOffset)
 	data, err := rg.convertToStats(progs)
 	if err != nil {
 		return err
@@ -388,8 +399,9 @@ func groupCoverByFilePrefixes(datas []fileStats, subsystems []mgrconfig.Subsyste
 	return d
 }
 
-func (rg *ReportGenerator) DoHTMLTable(w io.Writer, progs []Prog, coverFilter map[uint32]uint32) error {
-	progs = fixUpPCs(rg.target.Arch, progs, coverFilter)
+func (rg *ReportGenerator) DoHTMLTable(w io.Writer, progs []Prog, coverFilter map[uint32]uint32,
+	moduleLoadOffset int) error {
+	progs = rg.FixupPCs(progs, coverFilter, moduleLoadOffset)
 	data, err := rg.convertToStats(progs)
 	if err != nil {
 		return err
@@ -464,8 +476,9 @@ func groupCoverByModule(datas []fileStats) map[string]map[string]string {
 	return d
 }
 
-func (rg *ReportGenerator) DoModuleCover(w io.Writer, progs []Prog, coverFilter map[uint32]uint32) error {
-	progs = fixUpPCs(rg.target.Arch, progs, coverFilter)
+func (rg *ReportGenerator) DoModuleCover(w io.Writer, progs []Prog, coverFilter map[uint32]uint32,
+	moduleLoadOffset int) error {
+	progs = rg.FixupPCs(progs, coverFilter, moduleLoadOffset)
 	data, err := rg.convertToStats(progs)
 	if err != nil {
 		return err
@@ -483,8 +496,9 @@ var csvHeader = []string{
 	"Total PCs",
 }
 
-func (rg *ReportGenerator) DoCSV(w io.Writer, progs []Prog, coverFilter map[uint32]uint32) error {
-	progs = fixUpPCs(rg.target.Arch, progs, coverFilter)
+func (rg *ReportGenerator) DoCSV(w io.Writer, progs []Prog, coverFilter map[uint32]uint32,
+	moduleLoadOffset int) error {
+	progs = rg.FixupPCs(progs, coverFilter, moduleLoadOffset)
 	files, err := rg.prepareFileMap(progs)
 	if err != nil {
 		return err

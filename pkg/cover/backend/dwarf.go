@@ -186,6 +186,7 @@ func makeDWARFUnsafe(target *targets.Target, objDir, srcDir, buildDir string,
 		RestorePC: func(pc uint32) uint64 {
 			return PreviousInstructionPC(target, RestorePC(pc, uint32(pcBase>>32)))
 		},
+		BaseAddr: pcBase,
 	}
 	return impl, nil
 }

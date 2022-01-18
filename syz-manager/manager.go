@@ -92,6 +92,7 @@ type Manager struct {
 	coverFilter        map[uint32]uint32
 	coverFilterBitmap  []byte
 	modulesInitialized bool
+	moduleLoadOffset   int
 }
 
 const (
@@ -1145,6 +1146,10 @@ func (mgr *Manager) candidateBatch(size int) []rpctype.Candidate {
 		}
 	}
 	return res
+}
+
+func (mgr *Manager) setModuleLoadOffset(offset int) {
+	mgr.moduleLoadOffset = offset
 }
 
 func (mgr *Manager) rotateCorpus() bool {
