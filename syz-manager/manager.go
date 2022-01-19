@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1082,6 +1083,10 @@ func (mgr *Manager) fuzzerConnect(modules []*host.KernelModule) (
 			log.Fatalf("failed to create coverage filter: %v", err)
 		}
 		mgr.modulesInitialized = true
+	} else {
+		if !reflect.DeepEqual(mgr.modules, modules) {
+			log.Logf(0, "module load address varies across reboot, pls check KCOV build")
+		}
 	}
 	return corpus, frames, mgr.coverFilter, mgr.coverFilterBitmap, nil
 }
