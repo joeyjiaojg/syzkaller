@@ -57,6 +57,27 @@ func (target *Target) calcStaticPriorities() [][]int32 {
 			}
 		}
 	}
+	for _, c0 := range target.Syscalls {
+		max := int32(1)
+		for _, p := range prios[c0.ID] {
+			if max < p {
+				max = p
+			}
+		}
+		for _, c1 := range target.Syscalls {
+			if c0.ID == c1.ID {
+				continue
+			}
+			if c0.Attrs.Group == c1.Attrs.Group {
+				// A higher priority will be assigned when syscalls in the same group
+				prios[c0.ID][c1.ID] += (max - prios[c0.ID][c1.ID]) * 3 / 4
+				if (c0.Attrs.Group & 0x80000000) == 0 {
+					// User defined group gains max priority
+					prios[c0.ID][c1.ID] = max
+				}
+			}
+		}
+	}
 	normalizePrio(prios)
 	// The value assigned for self-priority (call wrt itself) have to be high, but not too high.
 	for c0, pp := range prios {

@@ -18,7 +18,7 @@ import (
 )
 
 var (
-	once sync.Once
+	once  sync.Once
 	paths map[string]string
 )
 

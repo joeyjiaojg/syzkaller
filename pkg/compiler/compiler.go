@@ -96,6 +96,7 @@ func Compile(desc *ast.Description, consts map[string]uint64, target *targets.Ta
 	if comp.errors != 0 {
 		return nil
 	}
+	comp.groups = make(map[string]uint64)
 	syscalls := comp.genSyscalls()
 	comp.layoutTypes(syscalls)
 	types := comp.generateTypes(syscalls)
@@ -116,6 +117,8 @@ func Compile(desc *ast.Description, consts map[string]uint64, target *targets.Ta
 
 type compiler struct {
 	desc     *ast.Description
+	groups   map[string]uint64
+	count    uint64
 	target   *targets.Target
 	eh       ast.ErrorHandler
 	errors   int

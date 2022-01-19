@@ -125,6 +125,20 @@ func (comp *compiler) genSyscall(n *ast.Call, argSizes []uint64) *prog.Syscall {
 		}
 	}
 	fields, _ := comp.genFieldArray(n.Args, argSizes)
+	// generate group number for the syscalls in the same description file
+	if _, ok := comp.groups[n.Pos.File]; !ok {
+		if comp.count == 0 {
+			comp.count = (1 << 31)
+		} else {
+			comp.count++
+		}
+		comp.groups[n.Pos.File] = comp.count
+	}
+	if attrs.Group == 0 {
+		attrs.Group = comp.groups[n.Pos.File]
+	} else if (attrs.Group & 0x80000000) != 0 {
+		panic("user defined group number needs to set bit 31 to 0")
+	}
 	return &prog.Syscall{
 		Name:        n.Name.Name,
 		CallName:    n.CallName,
