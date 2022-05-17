@@ -52,14 +52,15 @@ func MakeReportGenerator(target *targets.Target, vm, objDir, srcDir, buildDir st
 }
 
 type file struct {
-	module     string
-	filename   string
-	lines      map[int]line
-	functions  []*function
-	covered    []backend.Range
-	uncovered  []backend.Range
-	totalPCs   int
-	coveredPCs int
+	module              string
+	filename            string
+	lines               map[int]line
+	functions           []*function
+	covered             []backend.Range
+	uncovered           []backend.Range
+	totalPCs            int
+	totalInCoveredFuncs int
+	coveredPCs          int
 }
 
 type function struct {
