@@ -228,6 +228,9 @@ func (rg *ReportGenerator) findSymbol(pc uint64) *backend.Symbol {
 	idx := sort.Search(len(rg.Ranges), func(i int) bool {
 		return pc < rg.Ranges[i].Start
 	})
+	if idx == 0 {
+		return nil
+	}
 	idx--
 	var s *backend.Symbol
 	for j := idx; j < len(rg.Ranges); j++ {
